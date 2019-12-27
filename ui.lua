@@ -18,7 +18,7 @@ local bit = require'bit'
 local nw = require'nw'
 local time = require'time'
 local cairo = require'cairo'
-local C = require'layerlib_h'
+local C = require'layer_h'
 
 local zone = glue.noop
 local zone = require'jit.zone' --enable for profiling
