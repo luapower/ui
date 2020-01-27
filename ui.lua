@@ -4396,8 +4396,10 @@ view.from_window = view.from_parent
 function view:sync_with_window(w, h)
 	zone'sync'
 	self:sync()
-	self.l.min_cw = w
-	self.l.min_ch = h
+	self.l.min_cw = w - self.l.padding_left - self.l.padding_right
+	self.l.min_ch = h - self.l.padding_top  - self.l.padding_bottom
+	self.l.w = w
+	self.l.h = h
 	zone()
 	self:run_after_layout_funcs()
 end
