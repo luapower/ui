@@ -3,7 +3,6 @@ local time = require'time'
 local ui = require'ui'
 local color = require'color'
 ui.use_google_fonts = true
-ui = ui()
 
 local win = ui:window{
 	w = 800, h = 600,
