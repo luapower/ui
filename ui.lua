@@ -100,6 +100,7 @@ end
 
 function object:warn(...)
 	io.stderr:write(string.format(...))
+	io.stderr:write'\n'
 	io.stderr:write(debug.traceback())
 	io.stderr:write'\n'
 end
@@ -143,10 +144,12 @@ end
 
 --forward method calls to a sub-component.
 function object:forward_methods(component_name, methods)
-	for method, wrap in pairs(methods) do
+	for component_method, wrap in pairs(methods) do
+		local method = type(wrap) == 'string' and wrap or component_method
+		local wrap = type(wrap) == 'function' and wrap or pass
 		self[method] = function(self,...)
 			local e = self[component_name]
-			return wrap(e[method](e, ...))
+			return wrap(e[component_method](e, ...))
 		end
 	end
 end
@@ -165,11 +168,13 @@ function object:forward_property(prop, sub, readonly)
 	end
 end
 
-function object:forward_properties(sub, prefix, t)
-	if not t then sub, prefix, t = sub, '', prefix end
+function object:forward_properties(sub, readonly, t)
+	if type(readonly) == 'table' then
+		readonly, t = false, readonly
+	end
 	for prop, sub_prop in pairs(t) do
 		sub_prop = type(sub_prop) == 'string' and sub_prop or prop
-		self:forward_property(prefix..prop, sub..'.'..sub_prop)
+		self:forward_property(prop, sub..'.'..sub_prop, readonly)
 	end
 end
 
@@ -338,12 +343,8 @@ function ui:savedialog(t)          return self.app:savedialog(t) end
 function ui:set_app_id(id)         self.app.nw.app_id = id end
 function ui:get_app_id(id)         return nw.app_id end
 function ui:app_already_running()  return self.app:already_running() end
-function ui:wakeup_other_app_instances()
-	return self.app:wakeup_other_instances()
-end
-function ui:check_single_app_instance()
-	return self.app:check_single_instance()
-end
+function ui:wakeup_other_app_instances() return self.app:wakeup_other_instances() end
+function ui:check_single_app_instance() return self.app:check_single_instance() end
 
 --local files ----------------------------------------------------------------
 
@@ -356,6 +357,33 @@ function ui:load_file(file)
 	local bundle = require'bundle'
 	return self:check(bundle.load(file), 'file not found: "%s"', file)
 end
+
+--layerlib proxy properties & methods ----------------------------------------
+
+ui:forward_properties('layerlib', true, {
+	glyph_cache_count=1,
+	glyph_cache_size=1,
+	glyph_run_cache_count=1,
+	glyph_run_cache_size=1,
+	mem_font_cache_count=1,
+	mem_font_cache_size=1,
+	mmapped_font_cache_count=1,
+})
+
+ui:forward_properties('layerlib', {
+	error_function=1,
+	font_size_resolution=1,
+	glyph_cache_max_size=1,
+	glyph_run_cache_max_size=1,
+	mem_font_cache_max_size=1,
+	mmapped_font_cache_max_count=1,
+	subpixel_x_resolution=1,
+	word_subpixel_x_resolution=1,
+})
+
+ui:forward_methods('layerlib', {
+	font_face_num=1,
+})
 
 --fonts ----------------------------------------------------------------------
 
@@ -1622,7 +1650,6 @@ function window:override_init(inherited, t)
 	else
 
 		win:on({'mousemove', self}, function(win, mx, my)
-
 			if setmouse(mx, my) then
 				self.ui:_window_mousemove(self, mx, my)
 			end
@@ -2345,7 +2372,6 @@ function window:_key_event(event_name, key)
 	until not widget
 end
 
-
 --window sync'ing & rendering ------------------------------------------------
 
 function window:sync()
@@ -2709,12 +2735,8 @@ layer:forward_properties('l', {
 
 layer:enum_property('operator', operators)
 
-local function retpoint(p)
-	return p._0, p._1
-end
-
 layer:forward_methods('l', {
-	from_window = pass,
+	from_window=1,
 	--from_box_to_parent = retpoint,
 	--from_parent_to_box = retpoint,
 	--to_parent          = retpoint,
@@ -2955,6 +2977,9 @@ layer:forward_properties('l', {
 	maxlen='text_maxlen',
 	text_align_x=1,
 	text_align_y=1,
+	line_spacing=1,
+	hardline_spacing=1,
+	paragraph_spacing=1,
 })
 
 layer._text = false
@@ -2973,8 +2998,10 @@ local function after_set_font_prop(self, k)
 	local slant = self.italic and 'italic' or self.font_slant
 	local font_size = self.font_size or font_size
 	if font and font_size then
-		self.l:set_text_span_font_id(0, font.id)
-		self.l:set_text_span_font_size(0, font_size)
+		self.l:set_span_font_id(0, font.id)
+		self.l:set_span_font_size(0, font_size)
+	else
+		self:warn('font not found: %s,%s', font_name, font_size or 'n/a')
 	end
 end
 
@@ -2999,19 +3026,17 @@ function layer:get_text_utf32()
 	return ffi.string(self.l.text_utf32, self.l.text_utf32_len)
 end
 
-for k in pairs{
-	nowrap=1,
-	dir=1,
+for k, sk in pairs{
+	wrap=1,
+	dir='paragraph_dir',
 	script=1,
 	lang=1,
 	text_opacity=1,
-	line_spacing=1,
-	hardline_spacing=1,
-	paragraph_spacing=1,
 	text_operator=1,
 } do
-	local getter = 'get_text_span_'..k:gsub('^text_', '')
-	local setter = 'set_text_span_'..k:gsub('^text_', '')
+	sk = type(sk) == 'string' and sk or k
+	local getter = 'get_span_'..sk:gsub('^text_', '')
+	local setter = 'set_span_'..sk:gsub('^text_', '')
 	layer['get_'..k] = function(self)
 		return self.l[getter](self.l, 0)
 	end
@@ -3020,10 +3045,17 @@ for k in pairs{
 	end
 end
 
+layer:enum_property('wrap', {
+	[false] = C.WRAP_NONE,
+	word    = C.WRAP_WORD,
+	char    = C.WRAP_CHAR,
+})
+layer.wrap = 'word'
+
 layer._text_color = '#fff'
 
 layer:stored_property('text_color', function(self, v)
-	self.l:set_text_span_color(0, self.ui:rgba32(v))
+	self.l:set_span_color(0, self.ui:rgba32(v))
 end)
 
 layer:enum_property('dir', {
@@ -3697,33 +3729,6 @@ end
 
 --layer drawing & hit testing ------------------------------------------------
 
-function layer:bbox(strict) --child interface
-	if not self.visible then
-		return 0, 0, 0, 0
-	end
-	local x, y, w, h = 0, 0, 0, 0
-	local cc = self.clip_content
-	if strict or not cc then
-		x, y, w, h = self:content_bbox(strict)
-		if cc then
-			x, y, w, h = box2d.clip(x, y, w, h, self:background_rect())
-			if cc == true then
-				x, y, w, h = box2d.clip(x, y, w, h, self:padding_rect())
-			end
-		end
-	end
-	if (not strict and cc)
-		or self.background_hittable
-		or self:background_visible()
-	then
-		x, y, w, h = box2d.bounding_box(x, y, w, h, self:background_rect())
-	end
-	if self:border_visible() then
-		x, y, w, h = box2d.bounding_box(x, y, w, h, self:border_rect(1))
-	end
-	return x, y, w, h
-end
-
 --element interface
 
 function layer:get_clock()
@@ -3859,20 +3864,6 @@ function layer:set_value(val)
 	if val == old_val then return end
 	self:fire('value_changed', val, old_val)
 	return true
-end
-
---text geometry & drawing ----------------------------------------------------
-
-function layer:get_baseline()
-	if not self:text_visible() then return end
-	return self.text_segments.lines.baseline
-end
-
-function layer:text_bbox()
-	if not self:text_visible() then
-		return 0, 0, 0, 0
-	end
-	return self.text_segments:bbox()
 end
 
 --text caret & selection drawing ---------------------------------------------
