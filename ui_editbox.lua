@@ -313,7 +313,7 @@ if not ... then require('ui_demo')(function(ui, win)
 	win.view.flex_flow = 'y'
 	win.view.item_align_y = 'top'
 
-	ui:add_font_file('media/fonts/FSEX300.ttf', 'fixedsys')
+	ui:add_font_file('FSEX300.ttf', 'fixedsys')
 	ui:add_font_file('media/fonts/amiri-regular.ttf', 'Amiri')
 
 	local cue = 'Type text here...'
